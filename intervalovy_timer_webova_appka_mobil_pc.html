@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Interval Timer</title>
+  <meta name="theme-color" content="#111827">
+  <style>
+    body{margin:0;font-family:sans-serif;background:#111827;color:#f3f4f6;}
+    .app{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:10px;}
+    .card{background:#1f2937;padding:20px;border-radius:20px;max-width:480px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.5);transition:background 0.3s ease;}
+    h1{font-size:1.5rem;margin:0;display:flex;align-items:center;gap:10px;}
+    .badge{background:#6366f1;padding:2px 8px;border-radius:12px;font-size:0.75rem;color:white;}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:10px;margin-top:10px;}
+    .field{display:flex;flex-direction:column;gap:2px;}
+    label{font-size:0.85rem;}
+    input[type=number]{padding:6px;border-radius:8px;border:none;font-size:1rem;text-align:center;}
+    .display{text-align:center;margin:20px 0;}
+    .time{font-size:3rem;font-weight:bold;}
+    .phase{font-size:1.2rem;margin-bottom:6px;}
+    .sub{font-size:0.9rem;color:#9ca3af;}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:10px;}
+    button{flex:1;padding:10px;border:none;border-radius:10px;cursor:pointer;font-size:1rem;}
+    button.primary{background:#22c55e;color:white;}
+    button.warn{background:#eab308;color:white;}
+    button.danger{background:#ef4444;color:white;}
+    .footer{margin-top:20px;font-size:0.8rem;color:#9ca3af;text-align:center;}
+    .pill{background:#374151;padding:2px 6px;border-radius:6px;}
+    .progress{background:#374151;height:8px;border-radius:4px;overflow:hidden;margin-top:8px;}
+    .bar{height:8px;background:#22c55e;width:0%;}
+    .hidden{display:none;}
+    .work-bg{background:#7f1d1d!important;}
+    .rest-bg{background:#14532d!important;}
+    .break-bg{background:#1e3a8a!important;}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="card" id="card">
+      <div class="header">
+        <h1>Interval Timer <span class="badge">mobile + PC</span></h1>
+      </div>
+      <div class="display" id="display">
+        <div class="phase" id="phase">Ready</div>
+        <div class="time" id="clock">00:00</div>
+        <div class="sub" id="meta">Round 0 / 0 • Set 0 / 0</div>
+        <div class="progress"><div class="bar" id="bar"></div></div>
+      </div>
+      <div id="settings">
+        <div class="grid">
+          <div class="field" style="grid-column:span 6">
+            <label>Work (s)</label>
+            <input type="number" id="work" value="20" min="1">
+          </div>
+          <div class="field" style="grid-column:span 6">
+            <label>Rest (s)</label>
+            <input type="number" id="rest" value="10" min="0">
+          </div>
+          <div class="field" style="grid-column:span 6">
+            <label>Rounds</label>
+            <input type="number" id="rounds" value="8" min="1">
+          </div>
+          <div class="field" style="grid-column:span 6">
+            <label>Sets</label>
+            <input type="number" id="sets" value="1" min="1">
+          </div>
+          <div class="field" style="grid-column:span 6">
+            <label>Set break (s)</label>
+            <input type="number" id="setBreak" value="60" min="0">
+          </div>
+          <div class="field" style="grid-column:span 6">
+            <label>Warm‑up (s)</label>
+            <input type="number" id="warmup" value="0" min="0">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;justify-content:space-between">
+          <label><input type="checkbox" id="voice" checked> Voice cues</label>
+          <label><input type="checkbox" id="vibrate" checked> Vibration</label>
+          <label><input type="checkbox" id="wakeLock" checked> Prevent screen off</label>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="primary" id="start">Start (Space)</button>
+        <button id="pause">Pause (P)</button>
+        <button class="danger" id="reset">Reset</button>
+      </div>
+      <div class="footer">
+        Shortcuts: <span class="pill">Space</span> start/stop • <span class="pill">P</span> pause • <span class="pill">R</span> reset
+      </div>
+    </div>
+  </div>
+  <script>
+    const phaseEl=document.getElementById('phase');
+    const clockEl=document.getElementById('clock');
+    const metaEl=document.getElementById('meta');
+    const barEl=document.getElementById('bar');
+    const settingsEl=document.getElementById('settings');
+    const cardEl=document.getElementById('card');
+
+    const beepCtx=new (window.AudioContext||window.webkitAudioContext)();
+    function beep(long=false){
+      const osc=beepCtx.createOscillator();
+      const gain=beepCtx.createGain();
+      osc.type='sine'; osc.frequency.value=long?600:1000;
+      osc.connect(gain); gain.connect(beepCtx.destination);
+      gain.gain.setValueAtTime(0.1,beepCtx.currentTime);
+      osc.start(); osc.stop(beepCtx.currentTime+(long?0.6:0.2));
+    }
+
+    function speak(text){
+      if(!document.getElementById('voice').checked) return;
+      const u=new SpeechSynthesisUtterance(text);
+      u.lang='en-US';
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    }
+
+    let State={running:false,phase:'idle',time:0,work:20,rest:10,rounds:8,sets:1,setBreak:60,warmup:0,round:0,set:0};
+    let timer;
+
+    function setPhase(p,dur){
+      State.phase=p; State.time=dur;
+      const labels={idle:'Ready',warmup:'Warm‑up',work:'Work',rest:'Rest',break:'Break between sets',cooldown:'Finished'};
+      phaseEl.textContent=labels[p]||p;
+      cardEl.classList.remove('work-bg','rest-bg','break-bg');
+      if(p==='work') cardEl.classList.add('work-bg');
+      if(p==='rest') cardEl.classList.add('rest-bg');
+      if(p==='break') cardEl.classList.add('break-bg');
+      updateMeta();
+    }
+
+    function updateMeta(){
+      metaEl.textContent=`Round ${State.round} / ${State.rounds} • Set ${State.set} / ${State.sets}`;
+    }
+
+    function tick(){
+      if(!State.running) return;
+      if(State.time>0){
+        State.time--;
+        if(State.time<=5 && State.time>0){ beep(); }
+        if(State.time===0){ beep(true); }
+        updateClock();
+      } else { nextPhase(); }
+    }
+
+    function updateClock(){
+      let m=Math.floor(State.time/60),s=State.time%60;
+      clockEl.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      let totalDur=(State.phase==='work'?State.work:State.phase==='rest'?State.rest:State.phase==='warmup'?State.warmup:State.phase==='break'?State.setBreak:1);
+      barEl.style.width=`${100*(1-State.time/totalDur)}%`;
+    }
+
+    function nextPhase(){
+      if(State.phase==='idle'){
+        if(State.warmup>0){State.set=1;State.round=0;setPhase('warmup',State.warmup);speak('Warm up');return;}
+        State.set=1;State.round=1;setPhase('work',State.work);speak('Start');return;
+      }
+      if(State.phase==='warmup'){State.round=1;setPhase('work',State.work);speak('Start');return;}
+      if(State.phase==='work'){
+        if(State.round<State.rounds){setPhase('rest',State.rest);speak('Rest');return;}
+        if(State.set<State.sets){State.set++;State.round=0;setPhase('break',State.setBreak);speak('Break');return;}
+        setPhase('cooldown',0);State.running=false;speak('Finished');return;
+      }
+      if(State.phase==='rest'){State.round++;setPhase('work',State.work);speak(`Round ${State.round}`);return;}
+      if(State.phase==='break'){State.round=1;setPhase('work',State.work);speak(`Set ${State.set}`);return;}
+    }
+
+    function start(){
+      State.work=parseInt(document.getElementById('work').value);
+      State.rest=parseInt(document.getElementById('rest').value);
+      State.rounds=parseInt(document.getElementById('rounds').value);
+      State.sets=parseInt(document.getElementById('sets').value);
+      State.setBreak=parseInt(document.getElementById('setBreak').value);
+      State.warmup=parseInt(document.getElementById('warmup').value);
+      State.running=true;
+      settingsEl.classList.add('hidden');
+      setPhase('idle',0);
+      clearInterval(timer);
+      timer=setInterval(tick,1000);
+      nextPhase();
+    }
+
+    document.getElementById('start').onclick=start;
+    document.getElementById('pause').onclick=()=>State.running=!State.running;
+    document.getElementById('reset').onclick=()=>{clearInterval(timer);State.running=false;setPhase('idle',0);clockEl.textContent='00:00';barEl.style.width='0%';settingsEl.classList.remove('hidden');cardEl.classList.remove('work-bg','rest-bg','break-bg');};
+
+    document.addEventListener('keydown',e=>{
+      if(e.code==='Space'){e.preventDefault();start();}
+      if(e.code==='KeyP')State.running=!State.running;
+      if(e.code==='KeyR'){clearInterval(timer);State.running=false;setPhase('idle',0);clockEl.textContent='00:00';barEl.style.width='0%';settingsEl.classList.remove('hidden');cardEl.classList.remove('work-bg','rest-bg','break-bg');}
+    });
+  </script>
+</body>
+</html>
